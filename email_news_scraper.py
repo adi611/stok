@@ -98,8 +98,11 @@ class StoryProcessor:
         stories = self.scraper.scrape()
         filtered_stories = self.filter.filter_stories(stories, keywords)
 
-        for story in filtered_stories:
-            self.sender.send_message(story)
+        try:
+            for story in filtered_stories:
+                self.sender.send_message(story)
+        except Exception as e:
+            print(f"An error occurred while processing stories: {e}")
 
 def main():
     url = os.getenv("WEBSITE_URL")
