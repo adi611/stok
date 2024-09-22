@@ -17,7 +17,7 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install requests beautifulsoup4 python-dotenv
+        pip install requests beautifulsoup4 python-dotenv redis
     - name: Run news scraper
       env:
         WEBSITE_URL: ${{ secrets.WEBSITE_URL }}
@@ -25,4 +25,7 @@ jobs:
         MAILGUN_DOMAIN: ${{ secrets.MAILGUN_DOMAIN }}
         FROM_EMAIL: ${{ secrets.FROM_EMAIL }}
         TO_EMAIL: ${{ secrets.TO_EMAIL }}
+        REDIS_HOST: ${{ secrets.REDIS_HOST }}
+        REDIS_PORT: ${{ secrets.REDIS_PORT }}
+        REDIS_PASSWORD: ${{ secrets.REDIS_PASSWORD }}
       run: python email_news_scraper.py
