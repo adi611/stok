@@ -1,3 +1,4 @@
+import json
 import os
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
@@ -5,19 +6,36 @@ from typing import List
 from dotenv import load_dotenv
 import requests
 from bs4 import BeautifulSoup
+import redis
 
 load_dotenv()
+
+redis_client = redis.Redis(
+    host=os.getenv("REDIS_HOST"),
+    port=os.getenv("REDIS_PORT"),
+    password=os.getenv("REDIS_PASSWORD"),
+)
+
 
 @dataclass
 class Story:
     title: str
     time: str
     url: str
+    
+    def to_dict(self):
+        return {
+            "title": self.title,
+            "time": self.time,
+            "url": self.url
+        }
+
 
 class Scraper(ABC):
     @abstractmethod
     def scrape(self) -> List[Story]:
         pass
+
 
 class WebsiteScraper(Scraper):
     def __init__(self, url: str):
@@ -40,6 +58,7 @@ class WebsiteScraper(Scraper):
 
         return stories
 
+
 class StoryFilter:
     @staticmethod
     def filter_stories(stories: List[Story], keywords: List[str]) -> List[Story]:
@@ -49,13 +68,17 @@ class StoryFilter:
             if any(keyword in story.title.lower() for keyword in keywords)
         ]
 
+
 class MessageSender(ABC):
     @abstractmethod
     def send_message(self, story: Story) -> bool:
         pass
 
+
 class MailgunSender(MessageSender):
-    def __init__(self, api_key: str, domain: str, from_email: str, to_email: str):
+    def __init__(
+        self, api_key: str, domain: str, from_email: str, to_email: str
+    ):
         self.api_key = api_key
         self.domain = domain
         self.from_email = from_email
@@ -78,8 +101,8 @@ class MailgunSender(MessageSender):
                     "from": self.from_email,
                     "to": self.to_email,
                     "subject": subject,
-                    "text": body
-                }
+                    "text": body,
+                },
             )
             response.raise_for_status()
             print(f"Message sent successfully for story: {story.title}")
@@ -88,8 +111,11 @@ class MailgunSender(MessageSender):
             print(f"Error sending message: {e}")
             return False
 
+
 class StoryProcessor:
-    def __init__(self, scraper: Scraper, filter: StoryFilter, sender: MessageSender):
+    def __init__(
+        self, scraper: Scraper, filter: StoryFilter, sender: MessageSender
+    ):
         self.scraper = scraper
         self.filter = filter
         self.sender = sender
@@ -99,10 +125,15 @@ class StoryProcessor:
         filtered_stories = self.filter.filter_stories(stories, keywords)
 
         try:
-            for story in filtered_stories:
-                self.sender.send_message(story)
+            with redis_client.pipeline() as pipe:
+                for story in filtered_stories:
+                    self.sender.send_message(story)
+                    pipe.lpush("news_stories", json.dumps(story.to_dict()))
+                    pipe.ltrim("news_stories", 0, 99)  # Keep only the latest 100 stories
+                pipe.execute()        
         except Exception as e:
             print(f"An error occurred while processing stories: {e}")
+
 
 def main():
     url = os.getenv("WEBSITE_URL")
@@ -113,10 +144,13 @@ def main():
 
     scraper = WebsiteScraper(url)
     filter = StoryFilter()
-    sender = MailgunSender(mailgun_api_key, mailgun_domain, from_email, to_email)
+    sender = MailgunSender(
+        mailgun_api_key, mailgun_domain, from_email, to_email
+    )
     processor = StoryProcessor(scraper, filter, sender)
 
     processor.process(keywords=["bonus", "split"])
+
 
 if __name__ == "__main__":
     main()
